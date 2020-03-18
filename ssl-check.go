@@ -74,35 +74,16 @@ func checkSSL(h string, chChain chan ChainInfo) {
 	chChain <- cinfo
 }
 
-func checkRun(path string) []ChainInfo {
-	f, err := os.Open(path)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	reader := bufio.NewReader(f)
-
+func checkRun(domainlist []string) []ChainInfo {
 	chChain := make(chan ChainInfo, 0)
 	defer close(chChain)
 
-	idx := 0
-	for {
-		host, err := reader.ReadString('\n')
-		if err != nil {
-			break
-		}
-		// host = strings.Trim(host, "\r\n")
-
-		if len(host) == 0 || host[0] == '#' {
-			continue
-		}
-
+	for _, host := range domainlist {
 		go checkSSL(host, chChain)
-		idx++
 	}
 
 	cinfolist := []ChainInfo{}
-	for i := 0; i < idx; i++ {
+	for i := 0; i < len(domainlist); i++ {
 		cinfo := <-chChain
 		cinfolist = append(cinfolist, cinfo)
 	}
@@ -110,10 +91,30 @@ func checkRun(path string) []ChainInfo {
 	return cinfolist
 }
 
+func readDomain(path string) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+
+	domainlist := []string{}
+	for scanner.Scan() {
+		host := scanner.Text()
+		if len(host) == 0 || host[0] == '#' {
+			continue
+		}
+		domainlist = append(domainlist, host)
+	}
+	return domainlist
+}
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
-	cinfolist := checkRun("server_list.txt")
+	domainlist := readDomain("server_list.txt")
+	cinfolist := checkRun(domainlist)
 
 	sort.Slice(cinfolist, func(i, j int) bool {
 		return cinfolist[i].ExpireDate < cinfolist[j].ExpireDate

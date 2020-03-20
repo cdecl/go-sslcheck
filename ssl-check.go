@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,11 +27,14 @@ func fmtDurDay(d time.Duration) int {
 	return int(d.Hours() / 24)
 }
 
-func createChainInfo(h string) ChainInfo {
+func createChainInfo(h string, port string) ChainInfo {
 	cinfo := ChainInfo{}
 	cinfo.Host = h
-	r, err := net.LookupIP(cinfo.Host)
+	if port != "443" {
+		cinfo.Host = fmt.Sprintf("%s:%s", h, port)
+	}
 
+	r, err := net.LookupIP(h)
 	if err == nil {
 		cinfo.IP = fmt.Sprintf("%v", r[0])
 	}
@@ -45,10 +49,10 @@ func updateInfo(cinfo *ChainInfo, cert *x509.Certificate) {
 	cinfo.Error = "OK"
 }
 
-func checkSSLImpl(h string) ChainInfo {
-	cinfo := createChainInfo(h)
+func checkSSLImpl(h string, port string) ChainInfo {
+	cinfo := createChainInfo(h, port)
 
-	IP := fmt.Sprintf("[%s]:%d", cinfo.IP, 443)
+	IP := fmt.Sprintf("[%s]:%s", cinfo.IP, port)
 	dialer := net.Dialer{Timeout: time.Second * 5}
 
 	conn, err := tls.DialWithDialer(&dialer, "tcp", IP, &tls.Config{ServerName: h})
@@ -69,8 +73,8 @@ func checkSSLImpl(h string) ChainInfo {
 	return cinfo
 }
 
-func checkSSL(h string, chChain chan ChainInfo) {
-	cinfo := checkSSLImpl(h)
+func checkSSL(h string, port string, chChain chan ChainInfo) {
+	cinfo := checkSSLImpl(h, port)
 	chChain <- cinfo
 }
 
@@ -79,7 +83,16 @@ func checkRun(domainlist []string) []ChainInfo {
 	defer close(chChain)
 
 	for _, host := range domainlist {
-		go checkSSL(host, chChain)
+		domain := host
+		port := "443"
+
+		dopo := strings.Split(host, ":")
+		if len(dopo) == 2 {
+			domain = dopo[0]
+			port = dopo[1]
+		}
+
+		go checkSSL(domain, port, chChain)
 	}
 
 	cinfolist := []ChainInfo{}
@@ -97,9 +110,9 @@ func readDomain(path string) []string {
 		panic(err)
 	}
 	defer f.Close()
-	scanner := bufio.NewScanner(f)
 
 	domainlist := []string{}
+	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		host := scanner.Text()
 		if len(host) == 0 || host[0] == '#' {
